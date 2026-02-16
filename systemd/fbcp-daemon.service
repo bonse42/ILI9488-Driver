@@ -1,0 +1,17 @@
+[Unit]
+Description=FBCP DMA SPI shared-memory display daemon
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+User=pi
+Group=pi
+SupplementaryGroups=video
+AmbientCapabilities=CAP_SYS_RAWIO
+CapabilityBoundingSet=CAP_SYS_RAWIO
+EnvironmentFile=-/etc/default/fbcp-daemon
+ExecStart=/usr/bin/fbcp_daemon
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,64 @@
+#!/bin/sh
+set -e
+
+# Configure /boot/firmware/config.txt for display driver
+CONFIG_FILE="/boot/firmware/config.txt"
+if [ ! -f "$CONFIG_FILE" ]; then
+    CONFIG_FILE="/boot/config.txt"  # Fallback for older Raspberry Pi OS
+fi
+
+if [ -f "$CONFIG_FILE" ]; then
+    # Enable SPI if not already enabled
+    if ! grep -q "^dtparam=spi=on" "$CONFIG_FILE"; then
+        echo "dtparam=spi=on" >> "$CONFIG_FILE"
+    fi
+
+    # Configure SPI buffer size for DMA transfers (65536 bytes)
+    if ! grep -q "^spidev_bufsiz=" "$CONFIG_FILE"; then
+        echo "spidev_bufsiz=65536" >> "$CONFIG_FILE"
+    fi
+
+    # Enable CMA (Contiguous Memory Allocator) for GPU Mailbox and zero-copy DMA
+    if ! grep -q "^cma=" "$CONFIG_FILE"; then
+        echo "cma=16M" >> "$CONFIG_FILE"
+    fi
+
+    # Allocate sufficient GPU memory for framebuffers
+    if ! grep -q "^gpu_mem=" "$CONFIG_FILE"; then
+        echo "gpu_mem=128" >> "$CONFIG_FILE"
+    fi
+
+    # Configure GPIO pins for display control (DC=24, RESET=25)
+    if ! grep -q "gpio=24=op" "$CONFIG_FILE"; then
+        echo "gpio=24=op" >> "$CONFIG_FILE"
+    fi
+    if ! grep -q "gpio=25=op" "$CONFIG_FILE"; then
+        echo "gpio=25=op" >> "$CONFIG_FILE"
+    fi
+fi
+
+# Configure SPI buffer size via modprobe for kernel module
+MODPROBE_CONF="/etc/modprobe.d/spidev.conf"
+if ! grep -q "bufsiz=65536" "$MODPROBE_CONF" 2>/dev/null; then
+    echo "options spidev bufsiz=65536" > "$MODPROBE_CONF"
+fi
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+    systemctl enable --now fbcp-daemon.service || true
+fi
+
+# Inform user about required reboot
+echo ""
+echo "=========================================="
+echo "fbcp-daemon installation completed!"
+echo "=========================================="
+echo ""
+echo "IMPORTANT: You must reboot your Raspberry Pi for the following changes to take effect:"
+echo "  - /boot/config.txt modifications (SPI, CMA, GPU memory, GPIO)"
+echo "  - SPI buffer size configuration (/etc/modprobe.d/spidev.conf)"
+echo ""
+echo "Please run: sudo reboot"
+echo ""
+
+exit 0
