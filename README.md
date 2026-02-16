@@ -10,7 +10,7 @@ A high-performance framebuffer driver for **ILI9488 SPI TFT displays** on Raspbe
 - **Triple-buffering** for asynchronous I/O pipeline
 - **GPU-accelerated 2D rotation** when available
 
-The implementation is modernized for 64-bit Raspberry Pi OS (kernel >=5.x) and inspired by fbcp-ili9341.
+The implementation is modernized for 64-bit Raspberry Pi OS (kernel >=5.x) and inspired by [fbcp-ili9341](https://github.com/juj/fbcp-ili9341).
 
 **Note:** This is a display driver, not a terminal emulator. You must write your own application to convert and push pixel data to the shared memory framebuffer. See [Important: This is a Display Driver, Not a Terminal Emulator](#important-this-is-a-display-driver-not-a-terminal-emulator) for details.
 
@@ -307,4 +307,4 @@ The service is configured in `/etc/systemd/system/fbcp-daemon.service` and uses 
 
 ## License
 
-This project uses the fbcp-ili9341 license. See `LICENSE.txt`.
+This project uses the [fbcp-ili9341](https://github.com/juj/fbcp-ili9341) license. See `LICENSE.txt`.
