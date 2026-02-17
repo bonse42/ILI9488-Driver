@@ -32,7 +32,7 @@ The implementation is modernized for 64-bit Raspberry Pi OS (kernel >=5.x) and i
 ### 1. Install from Debian Package
 
 ```bash
-sudo apt install ./ili9488-daemon_1.0.0_arm64.deb
+sudo dpkg -i ili9488-daemon_1.0.0_arm64.deb
 ```
 
 The post-install script automatically configures:
