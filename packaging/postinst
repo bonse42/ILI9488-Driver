@@ -19,13 +19,45 @@ if [ -f "$CONFIG_FILE" ]; then
     fi
 
     # Enable CMA (Contiguous Memory Allocator) for GPU Mailbox and zero-copy DMA
-    if ! grep -q "^cma=" "$CONFIG_FILE"; then
+    CMA_REQUIRED=16
+    if grep -q "^cma=" "$CONFIG_FILE"; then
+        # CMA is already set, check if value is sufficient
+        cma_line=$(grep "^cma=" "$CONFIG_FILE")
+        cma_value=$(echo "$cma_line" | sed 's/^cma=//' | sed 's/[^0-9].*//')
+
+        if [ "$cma_value" -lt "$CMA_REQUIRED" ]; then
+            # CMA is too small, update it
+            sed -i 's/^cma=.*/cma=16M/' "$CONFIG_FILE"
+            echo "WARNING: CMA value was too low (${cma_line#*=}), updated to 16M"
+        elif [ "$cma_value" -gt "$CMA_REQUIRED" ]; then
+            # CMA is larger than required, inform user
+            echo "INFO: CMA is set to ${cma_line#*=}. Please verify it meets requirements"
+            echo "      for all your applications. This package requires minimum 16M."
+        fi
+    else
+        # CMA is not set, add it
         echo "cma=16M" >> "$CONFIG_FILE"
     fi
 
-    # Allocate sufficient GPU memory for framebuffers (64MB is sufficient for display)
-    if ! grep -q "^gpu_mem=" "$CONFIG_FILE"; then
-        echo "gpu_mem=64" >> "$CONFIG_FILE"
+    # Allocate sufficient GPU memory for framebuffers (32MB is sufficient for 320x480 RGB666 display)
+    GPU_MEM_REQUIRED=32
+    if grep -q "^gpu_mem=" "$CONFIG_FILE"; then
+        # GPU memory is already set, check if value is sufficient
+        gpu_mem_line=$(grep "^gpu_mem=" "$CONFIG_FILE")
+        gpu_mem_value=$(echo "$gpu_mem_line" | sed 's/^gpu_mem=//')
+
+        if [ "$gpu_mem_value" -lt "$GPU_MEM_REQUIRED" ]; then
+            # GPU memory is too small, update it
+            sed -i 's/^gpu_mem=.*/gpu_mem=32/' "$CONFIG_FILE"
+            echo "WARNING: GPU memory was too low (${gpu_mem_line#*=}), updated to 32"
+        elif [ "$gpu_mem_value" -gt "$GPU_MEM_REQUIRED" ]; then
+            # GPU memory is larger than required, inform user
+            echo "INFO: GPU memory is set to ${gpu_mem_line#*=}. Please verify it meets requirements"
+            echo "      for all your applications. This package requires minimum 32."
+        fi
+    else
+        # GPU memory is not set, add it
+        echo "gpu_mem=32" >> "$CONFIG_FILE"
     fi
 
     # Configure GPIO pins for display control (DC=24, RESET=25)
@@ -45,7 +77,13 @@ fi
 
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
-    systemctl enable --now ili9488-daemon.service || true
+    systemctl enable ili9488-daemon.service || true
+    # Restart if already running (picks up new binary + service file)
+    if systemctl is-active --quiet ili9488-daemon.service; then
+        systemctl restart ili9488-daemon.service || true
+    else
+        systemctl start ili9488-daemon.service || true
+    fi
 fi
 
 # Inform user about required reboot

@@ -58,6 +58,10 @@ public:
     void swapBuffers();
     bool isUsingGpuMailbox() const;
     bool rotateFrameGpu(const uint8_t* src, uint8_t* dst, uint32_t width, uint32_t height, int rotation_degrees);
+    ILI9488Framebuffer* getFramebuffer() { return gpu_.get(); }
+    ILI9488Transport* getTransport() { return spi_.get(); }
+    gpu::ILI9488Rotate* getRotator() { return gpu_rotate_.get(); }
+
 private:
     size_t bytesPerPixel() const;
     void writeFrameDma(const uint8_t* buf);

@@ -37,7 +37,7 @@ bool ILI9488Driver::initialize() {
         return false;
     }
     bool enable_mailbox = config_.use_gpu_mailbox;
-#ifndef FBCP_DMA_USE_GPU_MAILBOX
+#ifndef ILI9488_DMA_USE_GPU_MAILBOX
     enable_mailbox = false;
 #endif
     if (!gpu_->initialize(config_.width, config_.height, enable_mailbox)) {

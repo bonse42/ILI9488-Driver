@@ -1,4 +1,7 @@
 #include "ili9488_dma.h"
+#include "ili9488_mailbox.h"
+#include "ili9488_rotate.h"
+#include "spi_dma_linux.h"
 #include "pixel_utils.h"
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -12,7 +15,9 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
+#include <semaphore.h>
 
 namespace {
 volatile std::sig_atomic_t g_running = 1;
@@ -27,11 +32,7 @@ struct Options {
     uint32_t height = 0;
     int rotation_degrees = 0;
     bool overlay_fps = true;
-};
-
-struct ShmHeader {
-    uint32_t width;
-    uint32_t height;
+    uint32_t max_fps = 20;
 };
 
 uint32_t ParseUintEnv(const char* value) {
@@ -43,55 +44,27 @@ uint32_t ParseUintEnv(const char* value) {
     return (end && *end == '\0') ? static_cast<uint32_t>(parsed) : 0U;
 }
 
-int OpenSharedMemory(const std::string& name, size_t size) {
-    umask(0);
-    std::string shm_name = name.empty() ? "/ili9488_rgb666" : name;
-    if (shm_name[0] != '/') {
-        shm_name.insert(shm_name.begin(), '/');
-    }
-    int fd = shm_open(shm_name.c_str(), O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
-    if (fd < 0 && errno == EEXIST) {
-        fd = shm_open(shm_name.c_str(), O_RDWR | O_CLOEXEC, 0);
-    }
-    if (fd < 0 && errno == EACCES) {
-        shm_unlink(shm_name.c_str());
-        fd = shm_open(shm_name.c_str(), O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
-    }
-    if (fd < 0 && (errno == EACCES || errno == ENOENT)) {
-        std::string path = "/dev/shm" + shm_name;
-        fd = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);
-    }
-    if (fd < 0) {
-        std::perror("Failed to open shared memory");
-        return -1;
-    }
-    if (fchmod(fd, 0666) < 0) {
-        std::perror("Failed to chmod shared memory");
-    }
-    if (ftruncate(fd, static_cast<off_t>(size)) < 0) {
-        std::perror("Failed to size shared memory");
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
 Options ParseOptions(int argc, char** argv) {
     Options options;
-    if (const char* env_name = std::getenv("FBCP_SHM_NAME")) {
+    if (const char* env_name = std::getenv("ILI9488_SHM_NAME")) {
         options.shm_name = env_name;
     }
-    options.width = ParseUintEnv(std::getenv("FBCP_WIDTH"));
-    options.height = ParseUintEnv(std::getenv("FBCP_HEIGHT"));
-    options.rotation_degrees = static_cast<int>(ParseUintEnv(std::getenv("FBCP_ROTATION")));
-    options.overlay_fps = ParseUintEnv(std::getenv("FBCP_FPS")) != 0U;
+    options.width = ParseUintEnv(std::getenv("ILI9488_WIDTH"));
+    options.height = ParseUintEnv(std::getenv("ILI9488_HEIGHT"));
+    options.rotation_degrees = static_cast<int>(ParseUintEnv(std::getenv("ILI9488_ROTATION")));
+    options.overlay_fps = ParseUintEnv(std::getenv("ILI9488_FPS_OVERLAY")) != 0U;
+    const uint32_t env_max_fps = ParseUintEnv(std::getenv("ILI9488_MAX_FPS"));
+    if (env_max_fps > 0) {
+        options.max_fps = env_max_fps;
+    }
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         constexpr const char* kShmPrefix = "--shm=";
         constexpr const char* kWidthPrefix = "--width=";
         constexpr const char* kHeightPrefix = "--height=";
         constexpr const char* kRotationPrefix = "--rotation=";
-        constexpr const char* kOverlayFpsPrefix = "--fps=";
+        constexpr const char* kOverlayFpsPrefix = "--fps-overlay=";
+        constexpr const char* kMaxFpsPrefix = "--max-fps=";
         if (arg.rfind(kShmPrefix, 0) == 0) {
             options.shm_name = arg.substr(std::strlen(kShmPrefix));
         } else if (arg == "--shm" && i + 1 < argc) {
@@ -110,8 +83,12 @@ Options ParseOptions(int argc, char** argv) {
             options.rotation_degrees = static_cast<int>(ParseUintEnv(argv[++i]));
         } else if (arg.rfind(kOverlayFpsPrefix, 0) == 0) {
             options.overlay_fps = ParseUintEnv(arg.c_str() + std::strlen(kOverlayFpsPrefix)) != 0U;
-        } else if (arg == "--fps" && i + 1 < argc) {
+        } else if (arg == "--fps-overlay" && i + 1 < argc) {
             options.overlay_fps = ParseUintEnv(argv[++i]) != 0U;
+        } else if (arg.rfind(kMaxFpsPrefix, 0) == 0) {
+            options.max_fps = ParseUintEnv(arg.c_str() + std::strlen(kMaxFpsPrefix));
+        } else if (arg == "--max-fps" && i + 1 < argc) {
+            options.max_fps = ParseUintEnv(argv[++i]);
         }
     }
     return options;
@@ -195,7 +172,7 @@ int main(int argc, char** argv) {
     if (options.shm_name.empty() || options.width == 0 || options.height == 0) {
         std::cerr << "Usage: ili9488_daemon --shm <name> --width <w> --height <h>"
                      " [--rotation <deg>] [--fps <0|1>]\n"
-                     "Or set FBCP_SHM_NAME/FBCP_WIDTH/FBCP_HEIGHT/FBCP_ROTATION/FBCP_FPS"
+                     "Or set ILI9488_SHM_NAME/ILI9488_WIDTH/ILI9488_HEIGHT/ILI9488_ROTATION/ILI9488_FPS"
                      " in /etc/default/ili9488-daemon.\n";
         return 1;
     }
@@ -206,23 +183,15 @@ int main(int argc, char** argv) {
     }
     std::signal(SIGINT, HandleSignal);
     std::signal(SIGTERM, HandleSignal);
+
     const bool swap_axes = options.rotation_degrees == 90 || options.rotation_degrees == 270;
     const uint32_t framebuffer_width = swap_axes ? options.height : options.width;
     const uint32_t framebuffer_height = swap_axes ? options.width : options.height;
     const int rotation_to_apply = (360 - options.rotation_degrees) % 360;
     const size_t stride_bytes = static_cast<size_t>(framebuffer_width) * 3U;
     const size_t framebuffer_bytes = stride_bytes * static_cast<size_t>(framebuffer_height);
-    const size_t shm_bytes = sizeof(ShmHeader) + framebuffer_bytes;
-    const int shm_fd = OpenSharedMemory(options.shm_name, shm_bytes);
-    if (shm_fd < 0) {
-        return 1;
-    }
-    void* shm_map = mmap(nullptr, shm_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (shm_map == MAP_FAILED) {
-        std::perror("Failed to mmap shared memory");
-        close(shm_fd);
-        return 1;
-    }
+    const size_t display_bytes = static_cast<size_t>(options.width) * options.height * 3U;
+
     ili9488::DisplayConfig cfg;
     cfg.width = options.width;
     cfg.height = options.height;
@@ -231,38 +200,66 @@ int main(int argc, char** argv) {
     cfg.use_gpu_mailbox = true;
     ili9488::ILI9488Driver driver(cfg);
     if (!driver.initialize()) {
-        std::cerr << "Failed to initialize SPI DMA driver.\n";
-        munmap(shm_map, shm_bytes);
-        close(shm_fd);
+        std::cerr << "ERROR: Failed to initialize SPI DMA driver.\n";
         return 1;
     }
-    const size_t display_bytes = static_cast<size_t>(options.width) * options.height * 3U;
+
+    ili9488::TripleBufferShmHeader* header = nullptr;
+    int shm_fd = -1;
+    if (!driver.getFramebuffer()->createTripleBufferSharedMemory(
+        options.shm_name,
+        framebuffer_width, framebuffer_height,
+        &header, shm_fd)) {
+        std::cerr << "ERROR: Failed to create triple-buffer shared memory.\n";
+        return 1;
+    }
+
+    header->rotation_degrees = options.rotation_degrees;
+    header->daemon_ready = 1;
+
     const bool use_zero_copy = driver.isUsingGpuMailbox();
-    std::vector<uint8_t> source_frame;
-    std::vector<uint8_t> packed_frame(display_bytes);
-    source_frame.resize(framebuffer_bytes);
-    auto* shm_header = static_cast<ShmHeader*>(shm_map);
-    shm_header->width = framebuffer_width;
-    shm_header->height = framebuffer_height;
-    auto* shm_base = reinterpret_cast<uint8_t*>(shm_header + 1);
+    std::cerr << "\n=== ili9488-daemon startup (Zero-Copy Triple-Buffer) ===\n";
+    std::cerr << "Display: " << options.width << "x" << options.height << " (RGB666)\n";
+    std::cerr << "Rotation: " << options.rotation_degrees << "°\n";
+    std::cerr << "Max FPS: " << options.max_fps << "\n";
+    std::cerr << "FPS Overlay: " << (options.overlay_fps ? "enabled" : "disabled") << "\n";
+    std::cerr << "\nFeature Status:\n";
+    std::cerr << "  GPU Mailbox/CMA: " << (use_zero_copy ? "✓ AVAILABLE (zero-copy mode)" : "✗ UNAVAILABLE") << "\n";
+    std::cerr << "  GPU Rotation: " << (options.rotation_degrees != 0 ? (use_zero_copy ? "✓ Available" : "✗ Fallback") : "- Not needed") << "\n";
+    std::cerr << "  Shared Memory: " << options.shm_name << "\n";
+    std::cerr << "==================================================\n\n";
     auto fps_start = std::chrono::steady_clock::now();
     size_t frames = 0;
     double fps = 0.0;
+    const uint64_t frame_time_us = options.max_fps > 0 ? 1000000ULL / options.max_fps : 0ULL;
+    auto frame_start = std::chrono::steady_clock::now();
+    uint32_t last_frame_counter = 0;
+
     while (g_running) {
-        uint8_t* frame_ptr = nullptr;
-        if (use_zero_copy) {
-            frame_ptr = driver.gpuBackBuffer();
-            if (frame_ptr == nullptr) {
-                break;
-            }
-            if (reinterpret_cast<uintptr_t>(frame_ptr) < 0x1000) {
-                break;
-            }
-            std::memcpy(frame_ptr, shm_base, framebuffer_bytes);
-        } else {
-            std::memcpy(source_frame.data(), shm_base, framebuffer_bytes);
-            frame_ptr = source_frame.data();
+        if (sem_trywait(&header->pending_sem) != 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
         }
+
+        uint8_t* pending_cpu = driver.getFramebuffer()->getPendingBuffer();
+        uint8_t* back_cpu = driver.getFramebuffer()->getBackBuffer();
+
+        if (pending_cpu == nullptr || back_cpu == nullptr) {
+            sem_post(&header->pending_sem);
+            break;
+        }
+
+        const uint32_t current_frame_counter = header->frame_counter;
+        if (current_frame_counter != last_frame_counter) {
+            uint8_t* shm_pending = driver.getFramebuffer()->getShmPendingBuffer();
+            if (shm_pending != nullptr) {
+                std::memcpy(pending_cpu, shm_pending, framebuffer_bytes);
+            }
+            last_frame_counter = current_frame_counter;
+        }
+
+        sem_post(&header->pending_sem);
+
         if (options.overlay_fps) {
             ++frames;
             const auto now = std::chrono::steady_clock::now();
@@ -271,29 +268,71 @@ int main(int argc, char** argv) {
                 fps = (frames * 1000.0) / static_cast<double>(elapsed.count());
                 frames = 0;
                 fps_start = now;
+
+                FILE* fps_log = std::fopen("/tmp/ili9488_benchmark.log", "a");
+                if (fps_log != nullptr) {
+                    std::fprintf(fps_log, "%.1f\n", fps);
+                    std::fclose(fps_log);
+                }
             }
             char fps_text[32];
             std::snprintf(fps_text, sizeof(fps_text), "FPS:%5.1f", fps);
-            DrawText(frame_ptr, framebuffer_width, framebuffer_height, stride_bytes, 8, 8,
+
+            const uint32_t clear_x = 8;
+            const uint32_t clear_y = 8;
+            const uint32_t clear_w = static_cast<uint32_t>(std::strlen(fps_text)) * kFontWidth;
+            const uint32_t clear_h = kFontHeight;
+            for (uint32_t row = clear_y; row < clear_y + clear_h && row < framebuffer_height; ++row) {
+                uint8_t* row_ptr = pending_cpu + static_cast<size_t>(row) * stride_bytes
+                                   + static_cast<size_t>(clear_x) * 3U;
+                std::memset(row_ptr, 0x00, static_cast<size_t>(clear_w) * 3U);
+            }
+
+            DrawText(pending_cpu, framebuffer_width, framebuffer_height, stride_bytes, 8, 8,
                      fps_text, 0xFC, 0xFC, 0xFC);
         }
-        if (rotation_to_apply != 0 && !driver.rotateFrameGpu(frame_ptr, packed_frame.data(), framebuffer_width, framebuffer_height, rotation_to_apply)) {
-            ili9488::pixel::RotateRgb666(frame_ptr, packed_frame.data(), framebuffer_width, framebuffer_height, rotation_to_apply);
-        } else if (rotation_to_apply == 0) {
-            std::memcpy(packed_frame.data(), frame_ptr, display_bytes);
-        }
-        if (use_zero_copy) {
-            uint8_t* gpu_buf = driver.gpuBackBuffer();
-            if (gpu_buf == nullptr) {
-                break;
-            }
-            std::memcpy(gpu_buf, packed_frame.data(), display_bytes);
+
+        if (header->rotation_degrees == 0) {
+            driver.getFramebuffer()->rotateBufferIndices();
+
+            uint8_t* front_cpu = driver.getFramebuffer()->getFrontBuffer();
+            driver.getTransport()->transferDma(front_cpu, display_bytes);
         } else {
-            driver.renderFrameRgb666(packed_frame.data());
+            uint32_t pending_bus_addr = header->buffer_c_bus_addr;
+            uint32_t back_bus_addr = header->buffer_b_bus_addr;
+
+            bool rotated = false;
+            if (pending_bus_addr != 0 && back_bus_addr != 0) {
+                rotated = driver.getRotator()->rotateRgb666DmaMode(
+                    pending_cpu, pending_bus_addr,
+                    back_cpu, back_bus_addr,
+                    framebuffer_width, framebuffer_height,
+                    rotation_to_apply);
+            }
+            if (!rotated) {
+                ili9488::pixel::RotateRgb666(pending_cpu, back_cpu,
+                                             framebuffer_width, framebuffer_height,
+                                             rotation_to_apply);
+            }
+
+            driver.getFramebuffer()->swapBackAndFront();
+
+            uint8_t* front_cpu = driver.getFramebuffer()->getFrontBuffer();
+            driver.getTransport()->transferDma(front_cpu, display_bytes);
         }
-        driver.swapBuffers();
+
+        if (frame_time_us > 0) {
+            const auto now = std::chrono::steady_clock::now();
+            const auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(now - frame_start).count();
+            if (elapsed_us < static_cast<int64_t>(frame_time_us)) {
+                const uint64_t sleep_us = frame_time_us - elapsed_us;
+                std::this_thread::sleep_for(std::chrono::microseconds(sleep_us));
+            }
+            frame_start = std::chrono::steady_clock::now();
+        }
     }
-    munmap(shm_map, shm_bytes);
-    close(shm_fd);
+
+    driver.getFramebuffer()->cleanupSharedMemory();
+
     return 0;
 }

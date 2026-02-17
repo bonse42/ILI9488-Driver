@@ -17,6 +17,8 @@ add_library(ili9488_dma
 
 target_include_directories(ili9488_dma PUBLIC include)
 
+target_link_libraries(ili9488_dma PRIVATE pthread)
+
 target_compile_definitions(ili9488_dma PRIVATE
     $<$<BOOL:${ILI9488_DMA_USE_GPU_MAILBOX}>:ILI9488_DMA_USE_GPU_MAILBOX=1>
 )
@@ -38,7 +40,7 @@ install(FILES systemd/ili9488-daemon.conf
 )
 
 set(CPACK_PACKAGE_NAME "ili9488-daemon")
-set(CPACK_PACKAGE_VERSION "1.0.0")
+set(CPACK_PACKAGE_VERSION "1.1.0")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ili9488_dma")
 set(CPACK_DEBIAN_PACKAGE_SECTION "graphics")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "systemd")

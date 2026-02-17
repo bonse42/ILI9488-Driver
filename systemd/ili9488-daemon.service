@@ -6,7 +6,7 @@ Wants=systemd-udev-settle.service
 [Service]
 User=pi
 Group=pi
-SupplementaryGroups=video
+SupplementaryGroups=video spi gpio
 AmbientCapabilities=CAP_SYS_RAWIO
 CapabilityBoundingSet=CAP_SYS_RAWIO
 EnvironmentFile=-/etc/default/ili9488-daemon

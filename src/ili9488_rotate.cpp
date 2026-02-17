@@ -6,6 +6,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <thread>
 
@@ -205,7 +206,7 @@ bool ILI9488Rotate::configureAndWaitDma(
 
     dma_regs_[kDmaCs / 4] = kDmaCsActive;
 
-    const int max_wait_ms = 1000;
+    const int max_wait_ms = 50;
     const auto start = std::chrono::steady_clock::now();
     while ((dma_regs_[kDmaCs / 4] & kDmaCsActive) != 0) {
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -240,7 +241,12 @@ bool ILI9488Rotate::rotateRgb666DmaMode(
         return false;
     }
 
-    return configureAndWaitDma(src_bus_addr, dst_bus_addr, width, height, rotation_degrees);
+    if (!configureAndWaitDma(src_bus_addr, dst_bus_addr, width, height, rotation_degrees)) {
+        std::fprintf(stderr, "WARNING: GPU DMA rotation failed – disabling, using CPU fallback\n");
+        dma_available_ = false;
+        return false;
+    }
+    return true;
 }
 
 bool ILI9488Rotate::rotateRgb666(
