@@ -1,45 +1,45 @@
 cmake_minimum_required(VERSION 3.16)
-project(fbcp_dma LANGUAGES C CXX)
+project(ili9488_dma LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TESTS "Build unit tests" OFF)
-option(FBCP_DMA_USE_GPU_MAILBOX "Enable GPU mailbox buffer allocation" ON)
+option(ILI9488_DMA_USE_GPU_MAILBOX "Enable GPU mailbox buffer allocation" ON)
 
-add_library(fbcp_dma
-    src/fbcp_dma.cpp
+add_library(ili9488_dma
+    src/ili9488_dma.cpp
     src/spi_dma_linux.cpp
-    src/gpu_mailbox.cpp
+    src/ili9488_mailbox.cpp
     src/pixel_utils.cpp
-    src/gpu_rotate.cpp
+    src/ili9488_rotate.cpp
 )
 
-target_include_directories(fbcp_dma PUBLIC include)
+target_include_directories(ili9488_dma PUBLIC include)
 
-target_compile_definitions(fbcp_dma PRIVATE
-    $<$<BOOL:${FBCP_DMA_USE_GPU_MAILBOX}>:FBCP_DMA_USE_GPU_MAILBOX=1>
+target_compile_definitions(ili9488_dma PRIVATE
+    $<$<BOOL:${ILI9488_DMA_USE_GPU_MAILBOX}>:ILI9488_DMA_USE_GPU_MAILBOX=1>
 )
 
-add_executable(fbcp_daemon src/fbcp_daemon.cpp)
-target_link_libraries(fbcp_daemon PRIVATE fbcp_dma)
+add_executable(ili9488-daemon src/ili9488_daemon.cpp)
+target_link_libraries(ili9488-daemon PRIVATE ili9488_dma)
 
 include(GNUInstallDirs)
 
-install(TARGETS fbcp_daemon
+install(TARGETS ili9488-daemon
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-install(FILES systemd/fbcp-daemon.service
+install(FILES systemd/ili9488-daemon.service
     DESTINATION lib/systemd/system
 )
-install(FILES systemd/fbcp-daemon.conf
+install(FILES systemd/ili9488-daemon.conf
     DESTINATION /etc/default
-    RENAME fbcp-daemon
+    RENAME ili9488-daemon
 )
 
-set(CPACK_PACKAGE_NAME "fbcp-daemon")
+set(CPACK_PACKAGE_NAME "ili9488-daemon")
 set(CPACK_PACKAGE_VERSION "1.0.0")
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "fbcp_dma")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ili9488_dma")
 set(CPACK_DEBIAN_PACKAGE_SECTION "graphics")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "systemd")
 
@@ -61,11 +61,11 @@ include(CPack)
 
 if(BUILD_TESTS)
   enable_testing()
-  add_executable(fbcp_tests tests/test_pixel_accuracy.cpp)
-  target_link_libraries(fbcp_tests PRIVATE fbcp_dma)
-  add_test(NAME fbcp_tests COMMAND fbcp_tests)
+  add_executable(ili9488_tests tests/test_pixel_accuracy.cpp)
+  target_link_libraries(ili9488_tests PRIVATE ili9488_dma)
+  add_test(NAME ili9488_tests COMMAND ili9488_tests)
 
-  add_executable(fbcp_perf_tests tests/test_refresh_perf.cpp)
-  target_link_libraries(fbcp_perf_tests PRIVATE fbcp_dma)
-  add_test(NAME fbcp_perf_tests COMMAND fbcp_perf_tests)
+  add_executable(ili9488_perf_tests tests/test_refresh_perf.cpp)
+  target_link_libraries(ili9488_perf_tests PRIVATE ili9488_dma)
+  add_test(NAME ili9488_perf_tests COMMAND ili9488_perf_tests)
 endif()

@@ -1,4 +1,4 @@
-#include "fbcp_dma.h"
+#include "ili9488_dma.h"
 #include "pixel_utils.h"
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -45,7 +45,7 @@ uint32_t ParseUintEnv(const char* value) {
 
 int OpenSharedMemory(const std::string& name, size_t size) {
     umask(0);
-    std::string shm_name = name.empty() ? "/fbcp_rgb666" : name;
+    std::string shm_name = name.empty() ? "/ili9488_rgb666" : name;
     if (shm_name[0] != '/') {
         shm_name.insert(shm_name.begin(), '/');
     }
@@ -193,10 +193,10 @@ void DrawText(uint8_t* buffer, uint32_t width, uint32_t height, size_t stride_by
 int main(int argc, char** argv) {
     const Options options = ParseOptions(argc, argv);
     if (options.shm_name.empty() || options.width == 0 || options.height == 0) {
-        std::cerr << "Usage: fbcp_daemon --shm <name> --width <w> --height <h>"
+        std::cerr << "Usage: ili9488_daemon --shm <name> --width <w> --height <h>"
                      " [--rotation <deg>] [--fps <0|1>]\n"
                      "Or set FBCP_SHM_NAME/FBCP_WIDTH/FBCP_HEIGHT/FBCP_ROTATION/FBCP_FPS"
-                     " in /etc/default/fbcp-daemon.\n";
+                     " in /etc/default/ili9488-daemon.\n";
         return 1;
     }
     if (options.rotation_degrees != 0 && options.rotation_degrees != 90 &&
@@ -223,13 +223,13 @@ int main(int argc, char** argv) {
         close(shm_fd);
         return 1;
     }
-    fbcp::DisplayConfig cfg;
+    ili9488::DisplayConfig cfg;
     cfg.width = options.width;
     cfg.height = options.height;
-    cfg.output_format = fbcp::OutputFormat::Rgb666;
-    cfg.rotation = fbcp::Rotation::Deg0;
+    cfg.output_format = ili9488::OutputFormat::Rgb666;
+    cfg.rotation = ili9488::Rotation::Deg0;
     cfg.use_gpu_mailbox = true;
-    fbcp::FbcpDriver driver(cfg);
+    ili9488::ILI9488Driver driver(cfg);
     if (!driver.initialize()) {
         std::cerr << "Failed to initialize SPI DMA driver.\n";
         munmap(shm_map, shm_bytes);
@@ -277,8 +277,11 @@ int main(int argc, char** argv) {
             DrawText(frame_ptr, framebuffer_width, framebuffer_height, stride_bytes, 8, 8,
                      fps_text, 0xFC, 0xFC, 0xFC);
         }
-        fbcp::pixel::RotateRgb666(frame_ptr, packed_frame.data(), framebuffer_width,
-                                  framebuffer_height, rotation_to_apply);
+        if (rotation_to_apply != 0 && !driver.rotateFrameGpu(frame_ptr, packed_frame.data(), framebuffer_width, framebuffer_height, rotation_to_apply)) {
+            ili9488::pixel::RotateRgb666(frame_ptr, packed_frame.data(), framebuffer_width, framebuffer_height, rotation_to_apply);
+        } else if (rotation_to_apply == 0) {
+            std::memcpy(packed_frame.data(), frame_ptr, display_bytes);
+        }
         if (use_zero_copy) {
             uint8_t* gpu_buf = driver.gpuBackBuffer();
             if (gpu_buf == nullptr) {

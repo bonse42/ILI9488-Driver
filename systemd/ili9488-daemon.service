@@ -1,5 +1,5 @@
 [Unit]
-Description=FBCP DMA SPI shared-memory display daemon
+Description=ILI9488 Display DMA SPI shared-memory daemon
 After=systemd-udev-settle.service
 Wants=systemd-udev-settle.service
 
@@ -9,8 +9,8 @@ Group=pi
 SupplementaryGroups=video
 AmbientCapabilities=CAP_SYS_RAWIO
 CapabilityBoundingSet=CAP_SYS_RAWIO
-EnvironmentFile=-/etc/default/fbcp-daemon
-ExecStart=/usr/bin/fbcp_daemon
+EnvironmentFile=-/etc/default/ili9488-daemon
+ExecStart=/usr/bin/ili9488-daemon
 Restart=on-failure
 
 [Install]

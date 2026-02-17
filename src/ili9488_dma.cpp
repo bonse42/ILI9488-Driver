@@ -1,22 +1,22 @@
-#include "fbcp_dma.h"
-#include "gpu_mailbox.h"
-#include "gpu_rotate.h"
+#include "ili9488_dma.h"
+#include "ili9488_mailbox.h"
+#include "ili9488_rotate.h"
 #include "spi_dma_linux.h"
 #include <cstring>
 
-namespace fbcp {
+namespace ili9488 {
 
-FbcpDriver::FbcpDriver(const DisplayConfig& cfg)
+ILI9488Driver::ILI9488Driver(const DisplayConfig& cfg)
     : config_(cfg),
-      spi_(std::make_unique<SpiDmaTransport>()),
-      gpu_(std::make_unique<GpuFramebuffer>()),
-      gpu_rotate_(std::make_unique<gpu::GpuRotate>()),
+      spi_(std::make_unique<ILI9488Transport>()),
+      gpu_(std::make_unique<ILI9488Framebuffer>()),
+      gpu_rotate_(std::make_unique<gpu::ILI9488Rotate>()),
       zero_copy_mode_(false),
       pending_bus_addr_(0) {}
 
-FbcpDriver::~FbcpDriver() = default;
+ILI9488Driver::~ILI9488Driver() = default;
 
-bool FbcpDriver::initialize() {
+bool ILI9488Driver::initialize() {
     SpiConfig spi_config {};
     spi_config.device = config_.spi_device;
     spi_config.speed_hz = config_.spi_hz;
@@ -56,7 +56,7 @@ bool FbcpDriver::initialize() {
     return true;
 }
 
-void FbcpDriver::renderFrameRgb666(const uint8_t* rgb666_pixels) {
+void ILI9488Driver::renderFrameRgb666(const uint8_t* rgb666_pixels) {
     if (zero_copy_mode_) {
         uint8_t* back_buf = gpu_->backBuffer();
         const size_t buffer_bytes = static_cast<size_t>(config_.width) * config_.height * 3U;
@@ -71,7 +71,7 @@ void FbcpDriver::renderFrameRgb666(const uint8_t* rgb666_pixels) {
     }
 }
 
-void FbcpDriver::renderFrameRgb666ZeroCopy(uint32_t bus_addr, const uint8_t* cpu_addr) {
+void ILI9488Driver::renderFrameRgb666ZeroCopy(uint32_t bus_addr, const uint8_t* cpu_addr) {
     if (!zero_copy_mode_) {
         const size_t buffer_bytes = static_cast<size_t>(config_.width) * config_.height * 3U;
         renderFrameRgb666(cpu_addr);
@@ -80,23 +80,23 @@ void FbcpDriver::renderFrameRgb666ZeroCopy(uint32_t bus_addr, const uint8_t* cpu
     pending_bus_addr_ = bus_addr;
 }
 
-uint8_t* FbcpDriver::gpuBackBuffer() {
+uint8_t* ILI9488Driver::gpuBackBuffer() {
     return gpu_->backBuffer();
 }
 
-uint32_t FbcpDriver::gpuBackBufferBusAddr() const {
+uint32_t ILI9488Driver::gpuBackBufferBusAddr() const {
     return gpu_->backBufferBusAddr();
 }
 
-uint32_t FbcpDriver::gpuFrontBufferBusAddr() const {
+uint32_t ILI9488Driver::gpuFrontBufferBusAddr() const {
     return gpu_->frontBufferBusAddr();
 }
 
-bool FbcpDriver::isUsingGpuMailbox() const {
+bool ILI9488Driver::isUsingGpuMailbox() const {
     return zero_copy_mode_;
 }
 
-void FbcpDriver::swapBuffers() {
+void ILI9488Driver::swapBuffers() {
     if (zero_copy_mode_) {
         if (config_.use_double_buffer) {
             gpu_->swapBuffers();
@@ -111,16 +111,23 @@ void FbcpDriver::swapBuffers() {
     }
 }
 
-size_t FbcpDriver::bytesPerPixel() const {
+size_t ILI9488Driver::bytesPerPixel() const {
     return 3U;
 }
 
-void FbcpDriver::writeFrameDma(const uint8_t* buf) {
+void ILI9488Driver::writeFrameDma(const uint8_t* buf) {
     spi_->transferDma(buf, static_cast<size_t>(config_.width) * config_.height * bytesPerPixel());
 }
 
-void FbcpDriver::writeFrameDmaFromBusAddr(uint32_t bus_addr, size_t size) {
+void ILI9488Driver::writeFrameDmaFromBusAddr(uint32_t bus_addr, size_t size) {
     spi_->transferDmaFromBusAddr(bus_addr, size);
+}
+
+bool ILI9488Driver::rotateFrameGpu(const uint8_t* src, uint8_t* dst, uint32_t width, uint32_t height, int rotation_degrees) {
+    if (!gpu_rotate_) {
+        return false;
+    }
+    return gpu_rotate_->rotateRgb666(src, 0, dst, 0, width, height, rotation_degrees);
 }
 
 }

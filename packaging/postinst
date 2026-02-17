@@ -23,9 +23,9 @@ if [ -f "$CONFIG_FILE" ]; then
         echo "cma=16M" >> "$CONFIG_FILE"
     fi
 
-    # Allocate sufficient GPU memory for framebuffers
+    # Allocate sufficient GPU memory for framebuffers (64MB is sufficient for display)
     if ! grep -q "^gpu_mem=" "$CONFIG_FILE"; then
-        echo "gpu_mem=128" >> "$CONFIG_FILE"
+        echo "gpu_mem=64" >> "$CONFIG_FILE"
     fi
 
     # Configure GPIO pins for display control (DC=24, RESET=25)
@@ -45,13 +45,13 @@ fi
 
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
-    systemctl enable --now fbcp-daemon.service || true
+    systemctl enable --now ili9488-daemon.service || true
 fi
 
 # Inform user about required reboot
 echo ""
 echo "=========================================="
-echo "fbcp-daemon installation completed!"
+echo "ili9488-daemon installation completed!"
 echo "=========================================="
 echo ""
 echo "IMPORTANT: You must reboot your Raspberry Pi for the following changes to take effect:"

@@ -2,12 +2,12 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace fbcp::gpu {
+namespace ili9488::gpu {
 
-class GpuRotate {
+class ILI9488Rotate {
 public:
-    GpuRotate();
-    ~GpuRotate();
+    ILI9488Rotate();
+    ~ILI9488Rotate();
     bool initialize(bool enable_dma = true);
     bool rotateRgb666DmaMode(
         const uint8_t* src, uint32_t src_bus_addr,

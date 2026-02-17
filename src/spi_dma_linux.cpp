@@ -14,7 +14,7 @@
 #include <cstdio>
 #include <iostream>
 
-namespace fbcp {
+namespace ili9488 {
 
 namespace {
 constexpr uint8_t kIli9488CmdSleepOut = 0x11;
@@ -79,7 +79,7 @@ constexpr uint32_t kDmaTiPerMapSpi = 6 << 16;
 constexpr uint32_t kDmaTiWaitResp = 1 << 3;
 }
 
-SpiDmaTransport::SpiDmaTransport()
+ILI9488Transport::ILI9488Transport()
     : spi_fd_(-1),
       gpio_chip_fd_(-1),
       dc_line_fd_(-1),
@@ -96,7 +96,7 @@ SpiDmaTransport::SpiDmaTransport()
       dma_cb_mem_(nullptr),
       dma_cb_bus_addr_(0) {}
 
-SpiDmaTransport::~SpiDmaTransport() {
+ILI9488Transport::~ILI9488Transport() {
     cleanupDirectDma();
 
     if (dc_line_fd_ >= 0) {
@@ -113,7 +113,7 @@ SpiDmaTransport::~SpiDmaTransport() {
     }
 }
 
-bool SpiDmaTransport::initialize(const SpiConfig& config) {
+bool ILI9488Transport::initialize(const SpiConfig& config) {
     config_ = config;
     current_speed_hz_ = config_.speed_hz;
     spi_fd_ = open(config_.device.c_str(), O_RDWR | O_CLOEXEC);
@@ -150,7 +150,7 @@ bool SpiDmaTransport::initialize(const SpiConfig& config) {
     return true;
 }
 
-bool SpiDmaTransport::transferDma(const uint8_t* buf, size_t length) {
+bool ILI9488Transport::transferDma(const uint8_t* buf, size_t length) {
     const size_t bytes_per_pixel = config_.pixel_format == kIli9488PixelFormatRgb565 ? 2U : 3U;
     const size_t line_bytes = static_cast<size_t>(config_.width) * bytes_per_pixel;
     const size_t expected_length = line_bytes * config_.height;
@@ -209,7 +209,7 @@ bool SpiDmaTransport::transferDma(const uint8_t* buf, size_t length) {
     return true;
 }
 
-bool SpiDmaTransport::setGpioValue(int line_fd, bool value) {
+bool ILI9488Transport::setGpioValue(int line_fd, bool value) {
     if (line_fd < 0) {
         return false;
     }
@@ -218,20 +218,20 @@ bool SpiDmaTransport::setGpioValue(int line_fd, bool value) {
     return ioctl(line_fd, GPIOHANDLE_SET_LINE_VALUES_IOCTL, &data) == 0;
 }
 
-int SpiDmaTransport::configureGpioOutput(int gpio, bool value) {
+int ILI9488Transport::configureGpioOutput(int gpio, bool value) {
     struct gpiohandle_request request {};
     request.lineoffsets[0] = gpio;
     request.flags = GPIOHANDLE_REQUEST_OUTPUT;
     request.default_values[0] = value ? 1 : 0;
     request.lines = 1;
-    std::snprintf(request.consumer_label, sizeof(request.consumer_label), "fbcp_dma");
+    std::snprintf(request.consumer_label, sizeof(request.consumer_label), "ili9488_dma");
     if (ioctl(gpio_chip_fd_, GPIO_GET_LINEHANDLE_IOCTL, &request) < 0) {
         return -1;
     }
     return request.fd;
 }
 
-bool SpiDmaTransport::sendCommand(uint8_t command) {
+bool ILI9488Transport::sendCommand(uint8_t command) {
     if (!setGpioValue(dc_line_fd_, false)) {
         return false;
     }
@@ -243,7 +243,7 @@ bool SpiDmaTransport::sendCommand(uint8_t command) {
     return ioctl(spi_fd_, SPI_IOC_MESSAGE(1), &transfer) >= 0;
 }
 
-bool SpiDmaTransport::sendData(const uint8_t* data, size_t length) {
+bool ILI9488Transport::sendData(const uint8_t* data, size_t length) {
     if (!setGpioValue(dc_line_fd_, true)) {
         return false;
     }
@@ -255,7 +255,7 @@ bool SpiDmaTransport::sendData(const uint8_t* data, size_t length) {
     return ioctl(spi_fd_, SPI_IOC_MESSAGE(1), &transfer) >= 0;
 }
 
-bool SpiDmaTransport::initializePanel() {
+bool ILI9488Transport::initializePanel() {
     auto sendCommandWithData = [this](uint8_t command, const uint8_t* data, size_t length) {
         if (!sendCommand(command)) {
             return false;
@@ -380,7 +380,7 @@ bool SpiDmaTransport::initializePanel() {
     return true;
 }
 
-bool SpiDmaTransport::transferDmaFromBusAddr(uint32_t bus_addr, size_t length) {
+bool ILI9488Transport::transferDmaFromBusAddr(uint32_t bus_addr, size_t length) {
 
     if (mem_fd_ < 0) {
         mem_fd_ = open("/dev/mem", O_RDONLY | O_SYNC | O_CLOEXEC);
@@ -408,20 +408,20 @@ bool SpiDmaTransport::transferDmaFromBusAddr(uint32_t bus_addr, size_t length) {
     return result;
 }
 
-bool SpiDmaTransport::supportsBusAddrTransfer() const {
+bool ILI9488Transport::supportsBusAddrTransfer() const {
     return direct_dma_available_;
 }
 
-bool SpiDmaTransport::sendDataFromBusAddr(uint32_t bus_addr, size_t length) {
+bool ILI9488Transport::sendDataFromBusAddr(uint32_t bus_addr, size_t length) {
     return transferDmaFromBusAddr(bus_addr, length);
 }
 
-bool SpiDmaTransport::setupDirectDma() {
+bool ILI9488Transport::setupDirectDma() {
     direct_dma_available_ = false;
     return false;
 }
 
-void SpiDmaTransport::cleanupDirectDma() {
+void ILI9488Transport::cleanupDirectDma() {
     if (dma_regs_ != nullptr && dma_regs_map_ != nullptr) {
         dma_regs_[kDmaCs / 4] = kDmaCsReset;
     }

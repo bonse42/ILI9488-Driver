@@ -9,7 +9,7 @@
 #define USE_NEON_OPTIMIZATION 0
 #endif
 
-namespace fbcp::pixel {
+namespace ili9488::pixel {
 
 void ConvertRgb888ToRgb666(const uint8_t* src, uint8_t* dst, size_t pixel_count) {
     for (size_t i = 0; i < pixel_count; ++i) {

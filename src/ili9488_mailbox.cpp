@@ -1,4 +1,4 @@
-#include "gpu_mailbox.h"
+#include "ili9488_mailbox.h"
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -13,7 +13,7 @@
 #include <cstring>
 #include <dirent.h>
 
-namespace fbcp {
+namespace ili9488 {
 
 namespace {
 constexpr uint32_t kMboxProperty = 0x00000000;
@@ -118,7 +118,7 @@ struct alignas(16) MailboxBuffer {
     uint32_t tags[32];
 };
 
-GpuFramebuffer::GpuFramebuffer()
+ILI9488Framebuffer::ILI9488Framebuffer()
     : width_(0),
       height_(0),
       buffer_size_(0),
@@ -136,12 +136,12 @@ GpuFramebuffer::GpuFramebuffer()
       back_index_(1),
       pending_index_(2) {}
 
-GpuFramebuffer::~GpuFramebuffer() {
+ILI9488Framebuffer::~ILI9488Framebuffer() {
     releaseCmaBuffers();
     releaseMailboxBuffers();
 }
 
-bool GpuFramebuffer::initialize(uint32_t width, uint32_t height, bool enable_mailbox) {
+bool ILI9488Framebuffer::initialize(uint32_t width, uint32_t height, bool enable_mailbox) {
     width_ = width;
     height_ = height;
     buffer_size_ = static_cast<size_t>(width_) * height_ * 3;
@@ -166,7 +166,7 @@ bool GpuFramebuffer::initialize(uint32_t width, uint32_t height, bool enable_mai
     return allocateCpuBuffers();
 }
 
-uint8_t* GpuFramebuffer::backBuffer() {
+uint8_t* ILI9488Framebuffer::backBuffer() {
     if (using_cma_) {
         return static_cast<uint8_t*>(cma_map_[back_index_]);
     } else if (use_mailbox_) {
@@ -176,7 +176,7 @@ uint8_t* GpuFramebuffer::backBuffer() {
     }
 }
 
-uint8_t* GpuFramebuffer::frontBuffer() {
+uint8_t* ILI9488Framebuffer::frontBuffer() {
     if (using_cma_) {
         return static_cast<uint8_t*>(cma_map_[front_index_]);
     } else if (use_mailbox_) {
@@ -186,7 +186,7 @@ uint8_t* GpuFramebuffer::frontBuffer() {
     }
 }
 
-uint8_t* GpuFramebuffer::pendingBuffer() {
+uint8_t* ILI9488Framebuffer::pendingBuffer() {
     if (using_cma_) {
         return static_cast<uint8_t*>(cma_map_[pending_index_]);
     } else if (use_mailbox_) {
@@ -196,49 +196,49 @@ uint8_t* GpuFramebuffer::pendingBuffer() {
     }
 }
 
-void GpuFramebuffer::swapBuffers() {
+void ILI9488Framebuffer::swapBuffers() {
     const int temp = front_index_;
     front_index_ = back_index_;
     back_index_ = temp;
 }
 
-void GpuFramebuffer::rotateBuffers() {
+void ILI9488Framebuffer::rotateBuffers() {
     const int old_front = front_index_;
     front_index_ = pending_index_;
     pending_index_ = back_index_;
     back_index_ = old_front;
 }
 
-size_t GpuFramebuffer::bufferSize() const {
+size_t ILI9488Framebuffer::bufferSize() const {
     return buffer_size_;
 }
 
-bool GpuFramebuffer::usingMailbox() const {
+bool ILI9488Framebuffer::usingMailbox() const {
     return use_mailbox_;
 }
 
-uint32_t GpuFramebuffer::backBufferBusAddr() const {
+uint32_t ILI9488Framebuffer::backBufferBusAddr() const {
     if (using_cma_) {
         return dmabuf_fd_[back_index_] >= 0 ? (0x80000000u | static_cast<uint32_t>(dmabuf_fd_[back_index_])) : 0;
     }
     return use_mailbox_ ? mailbox_bus_addr_[back_index_] : 0;
 }
 
-uint32_t GpuFramebuffer::frontBufferBusAddr() const {
+uint32_t ILI9488Framebuffer::frontBufferBusAddr() const {
     if (using_cma_) {
         return dmabuf_fd_[front_index_] >= 0 ? (0x80000000u | static_cast<uint32_t>(dmabuf_fd_[front_index_])) : 0;
     }
     return use_mailbox_ ? mailbox_bus_addr_[front_index_] : 0;
 }
 
-uint32_t GpuFramebuffer::pendingBufferBusAddr() const {
+uint32_t ILI9488Framebuffer::pendingBufferBusAddr() const {
     if (using_cma_) {
         return dmabuf_fd_[pending_index_] >= 0 ? (0x80000000u | static_cast<uint32_t>(dmabuf_fd_[pending_index_])) : 0;
     }
     return use_mailbox_ ? mailbox_bus_addr_[pending_index_] : 0;
 }
 
-bool GpuFramebuffer::openMailboxDevice() {
+bool ILI9488Framebuffer::openMailboxDevice() {
     if (mailbox_fd_ >= 0) {
         return true;
     }
@@ -258,7 +258,7 @@ bool GpuFramebuffer::openMailboxDevice() {
     return true;
 }
 
-uint32_t GpuFramebuffer::mailboxAllocate(size_t size, uint32_t align, uint32_t flags) {
+uint32_t ILI9488Framebuffer::mailboxAllocate(size_t size, uint32_t align, uint32_t flags) {
     if (mailbox_fd_ < 0) {
         return 0;
     }
@@ -282,7 +282,7 @@ uint32_t GpuFramebuffer::mailboxAllocate(size_t size, uint32_t align, uint32_t f
     return handle;
 }
 
-uint32_t GpuFramebuffer::mailboxLock(uint32_t handle) {
+uint32_t ILI9488Framebuffer::mailboxLock(uint32_t handle) {
     if (mailbox_fd_ < 0 || handle == 0) {
         return 0;
     }
@@ -302,7 +302,7 @@ uint32_t GpuFramebuffer::mailboxLock(uint32_t handle) {
     return msg.tags[3];
 }
 
-bool GpuFramebuffer::mailboxUnlock(uint32_t handle) {
+bool ILI9488Framebuffer::mailboxUnlock(uint32_t handle) {
     if (mailbox_fd_ < 0 || handle == 0) {
         return false;
     }
@@ -322,7 +322,7 @@ bool GpuFramebuffer::mailboxUnlock(uint32_t handle) {
     return true;
 }
 
-bool GpuFramebuffer::mailboxRelease(uint32_t handle) {
+bool ILI9488Framebuffer::mailboxRelease(uint32_t handle) {
     if (mailbox_fd_ < 0 || handle == 0) {
         return false;
     }
@@ -342,7 +342,7 @@ bool GpuFramebuffer::mailboxRelease(uint32_t handle) {
     return true;
 }
 
-void* GpuFramebuffer::mapBusAddress(uint32_t bus_addr, size_t size) {
+void* ILI9488Framebuffer::mapBusAddress(uint32_t bus_addr, size_t size) {
     if (mem_fd_ < 0 || bus_addr == 0) {
         return nullptr;
     }
@@ -360,7 +360,7 @@ void* GpuFramebuffer::mapBusAddress(uint32_t bus_addr, size_t size) {
     return static_cast<uint8_t*>(map) + page_offset;
 }
 
-bool GpuFramebuffer::allocateDmaBuffer(size_t size, DmaBuffer& out_buffer) {
+bool ILI9488Framebuffer::allocateDmaBuffer(size_t size, DmaBuffer& out_buffer) {
     if (!openMailboxDevice()) {
         return false;
     }
@@ -406,7 +406,7 @@ bool GpuFramebuffer::allocateDmaBuffer(size_t size, DmaBuffer& out_buffer) {
     return true;
 }
 
-void GpuFramebuffer::freeDmaBuffer(DmaBuffer& buffer) {
+void ILI9488Framebuffer::freeDmaBuffer(DmaBuffer& buffer) {
     if (buffer.user_ptr != nullptr && buffer.size > 0) {
         const uint32_t phys_addr = buffer.bus_addr & kBusAddressMask;
         const uint32_t page_offset = phys_addr & (kPageAlign - 1);
@@ -421,7 +421,7 @@ void GpuFramebuffer::freeDmaBuffer(DmaBuffer& buffer) {
     buffer = DmaBuffer{};
 }
 
-bool GpuFramebuffer::createDmaSharedMemory(const std::string& shm_name, size_t size,
+bool ILI9488Framebuffer::createDmaSharedMemory(const std::string& shm_name, size_t size,
                                             DmaBuffer& out_buffer, int& out_shm_fd) {
     if (!allocateDmaBuffer(size, out_buffer)) {
         return false;
@@ -432,12 +432,12 @@ bool GpuFramebuffer::createDmaSharedMemory(const std::string& shm_name, size_t s
         name.insert(name.begin(), '/');
     }
     if (name.empty()) {
-        name = "/fbcp_dma_shm";
+        name = "/ili9488_dma_shm";
     }
 
     shm_unlink(name.c_str());
 
-    int memfd = memfd_create("fbcp_dma_buffer", MFD_ALLOW_SEALING);
+    int memfd = memfd_create("ili9488_dma_buffer", MFD_ALLOW_SEALING);
     if (memfd < 0) {
         umask(0);
         out_shm_fd = shm_open(name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0666);
@@ -483,7 +483,7 @@ bool GpuFramebuffer::createDmaSharedMemory(const std::string& shm_name, size_t s
     return true;
 }
 
-bool GpuFramebuffer::allocateMailboxBuffers() {
+bool ILI9488Framebuffer::allocateMailboxBuffers() {
     if (!openMailboxDevice()) {
         return false;
     }
@@ -536,7 +536,7 @@ bool GpuFramebuffer::allocateMailboxBuffers() {
     return true;
 }
 
-bool GpuFramebuffer::allocateCmaBuffers() {
+bool ILI9488Framebuffer::allocateCmaBuffers() {
     dma_heap_fd_ = OpenAnyDmaHeap();
     if (dma_heap_fd_ < 0) {
         return false;
@@ -585,7 +585,7 @@ bool GpuFramebuffer::allocateCmaBuffers() {
     return true;
 }
 
-void GpuFramebuffer::releaseCmaBuffers() {
+void ILI9488Framebuffer::releaseCmaBuffers() {
     for (int i = 0; i < 3; ++i) {
         if (cma_map_[i] != nullptr && cma_map_[i] != MAP_FAILED) {
             munmap(cma_map_[i], buffer_size_);
@@ -603,7 +603,7 @@ void GpuFramebuffer::releaseCmaBuffers() {
     using_cma_ = false;
 }
 
-bool GpuFramebuffer::allocateCpuBuffers() {
+bool ILI9488Framebuffer::allocateCpuBuffers() {
     for (int i = 0; i < 3; ++i) {
         cpu_buffers_[i].resize(buffer_size_);
         std::memset(cpu_buffers_[i].data(), 0, buffer_size_);
@@ -611,7 +611,7 @@ bool GpuFramebuffer::allocateCpuBuffers() {
     return true;
 }
 
-void GpuFramebuffer::releaseMailboxBuffers() {
+void ILI9488Framebuffer::releaseMailboxBuffers() {
     for (int i = 0; i < 3; ++i) {
         if (mailbox_map_[i] != nullptr && mailbox_map_[i] != MAP_FAILED) {
             const uint32_t phys_addr = mailbox_bus_addr_[i] & kBusAddressMask;

@@ -1,4 +1,4 @@
-#include "gpu_rotate.h"
+#include "ili9488_rotate.h"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -9,7 +9,7 @@
 #include <cstring>
 #include <thread>
 
-namespace fbcp::gpu {
+namespace ili9488::gpu {
 
 namespace {
 
@@ -68,18 +68,18 @@ bool TryReadPeripheralBase(uint32_t* base_out) {
 
 }
 
-GpuRotate::GpuRotate()
+ILI9488Rotate::ILI9488Rotate()
     : dma_available_(false),
       mem_fd_(-1),
       dma_channel_(kDefaultDmaChannel),
       dma_regs_map_(nullptr),
       dma_regs_(nullptr) {}
 
-GpuRotate::~GpuRotate() {
+ILI9488Rotate::~ILI9488Rotate() {
     cleanupDmaController();
 }
 
-bool GpuRotate::initialize(bool enable_dma) {
+bool ILI9488Rotate::initialize(bool enable_dma) {
     dma_available_ = false;
 
     if (!enable_dma) {
@@ -94,7 +94,7 @@ bool GpuRotate::initialize(bool enable_dma) {
     return true;
 }
 
-bool GpuRotate::setupDmaController() {
+bool ILI9488Rotate::setupDmaController() {
     uint32_t periph_base = kBcm2835PeriphBase;
     TryReadPeripheralBase(&periph_base);
 
@@ -128,7 +128,7 @@ bool GpuRotate::setupDmaController() {
     return true;
 }
 
-void GpuRotate::cleanupDmaController() {
+void ILI9488Rotate::cleanupDmaController() {
     if (dma_regs_ != nullptr && dma_regs_map_ != nullptr) {
         dma_regs_[kDmaCs / 4] = kDmaCsReset;
         usleep(10);
@@ -148,11 +148,11 @@ void GpuRotate::cleanupDmaController() {
     dma_available_ = false;
 }
 
-bool GpuRotate::isDmaAvailable() const {
+bool ILI9488Rotate::isDmaAvailable() const {
     return dma_available_;
 }
 
-bool GpuRotate::configureAndWaitDma(
+bool ILI9488Rotate::configureAndWaitDma(
     uint32_t src_bus_addr, uint32_t dst_bus_addr,
     uint32_t width, uint32_t height,
     int rotation_degrees) {
@@ -220,7 +220,7 @@ bool GpuRotate::configureAndWaitDma(
     return true;
 }
 
-bool GpuRotate::rotateRgb666DmaMode(
+bool ILI9488Rotate::rotateRgb666DmaMode(
     const uint8_t* src, uint32_t src_bus_addr,
     uint8_t* dst, uint32_t dst_bus_addr,
     uint32_t width, uint32_t height,
@@ -243,7 +243,7 @@ bool GpuRotate::rotateRgb666DmaMode(
     return configureAndWaitDma(src_bus_addr, dst_bus_addr, width, height, rotation_degrees);
 }
 
-bool GpuRotate::rotateRgb666(
+bool ILI9488Rotate::rotateRgb666(
     const uint8_t* src, uint32_t src_bus_addr,
     uint8_t* dst, uint32_t dst_bus_addr,
     uint32_t width, uint32_t height,

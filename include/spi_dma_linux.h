@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace fbcp {
+namespace ili9488 {
 
 struct SpiConfig {
     std::string device;
@@ -21,10 +21,10 @@ struct SpiConfig {
     int reset_gpio;
 };
 
-class SpiDmaTransport {
+class ILI9488Transport {
 public:
-    SpiDmaTransport();
-    ~SpiDmaTransport();
+    ILI9488Transport();
+    ~ILI9488Transport();
     bool initialize(const SpiConfig& config);
     bool transferDma(const uint8_t* buf, size_t length);
     bool transferDmaFromBusAddr(uint32_t bus_addr, size_t length);

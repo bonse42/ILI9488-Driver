@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace fbcp {
+namespace ili9488 {
 
 struct DmaBuffer {
     void* user_ptr = nullptr;
@@ -13,10 +13,10 @@ struct DmaBuffer {
     size_t size = 0;
 };
 
-class GpuFramebuffer {
+class ILI9488Framebuffer {
 public:
-    GpuFramebuffer();
-    ~GpuFramebuffer();
+    ILI9488Framebuffer();
+    ~ILI9488Framebuffer();
 
     bool initialize(uint32_t width, uint32_t height, bool enable_mailbox);
     uint8_t* backBuffer();

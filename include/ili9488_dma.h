@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace fbcp {
+namespace ili9488 {
 
 enum class Rotation {
     Deg0,
@@ -39,16 +39,16 @@ struct DisplayConfig {
     bool use_gpu_mailbox = true;
 };
 
-class SpiDmaTransport;
-class GpuFramebuffer;
+class ILI9488Transport;
+class ILI9488Framebuffer;
 namespace gpu {
-class GpuRotate;
+class ILI9488Rotate;
 }
 
-class FbcpDriver {
+class ILI9488Driver {
 public:
-    explicit FbcpDriver(const DisplayConfig& cfg);
-    ~FbcpDriver();
+    explicit ILI9488Driver(const DisplayConfig& cfg);
+    ~ILI9488Driver();
     bool initialize();
     void renderFrameRgb666(const uint8_t* rgb666_pixels);
     void renderFrameRgb666ZeroCopy(uint32_t bus_addr, const uint8_t* cpu_addr);
@@ -57,14 +57,15 @@ public:
     uint32_t gpuFrontBufferBusAddr() const;
     void swapBuffers();
     bool isUsingGpuMailbox() const;
+    bool rotateFrameGpu(const uint8_t* src, uint8_t* dst, uint32_t width, uint32_t height, int rotation_degrees);
 private:
     size_t bytesPerPixel() const;
     void writeFrameDma(const uint8_t* buf);
     void writeFrameDmaFromBusAddr(uint32_t bus_addr, size_t size);
     DisplayConfig config_;
-    std::unique_ptr<SpiDmaTransport> spi_;
-    std::unique_ptr<GpuFramebuffer> gpu_;
-    std::unique_ptr<gpu::GpuRotate> gpu_rotate_;
+    std::unique_ptr<ILI9488Transport> spi_;
+    std::unique_ptr<ILI9488Framebuffer> gpu_;
+    std::unique_ptr<gpu::ILI9488Rotate> gpu_rotate_;
     std::vector<uint8_t> backBuffer_;
     std::vector<uint8_t> frontBuffer_;
     bool zero_copy_mode_;

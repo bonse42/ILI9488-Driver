@@ -32,14 +32,14 @@ The implementation is modernized for 64-bit Raspberry Pi OS (kernel >=5.x) and i
 ### 1. Install from Debian Package
 
 ```bash
-sudo apt install ./fbcp-daemon_1.0.0_arm64.deb
+sudo apt install ./ili9488-daemon_1.0.0_arm64.deb
 ```
 
 The post-install script automatically configures:
 - SPI enablement (`dtparam=spi=on`)
 - SPI buffer size (65536 bytes) in kernel module
 - CMA allocation (16MB) for GPU Mailbox support
-- GPU memory (128MB) for framebuffers
+- GPU memory (64MB) for framebuffers
 - GPIO pin configuration (DC=24, RESET=25)
 
 **After installation, you must reboot** for kernel configuration changes to take effect.
@@ -107,7 +107,7 @@ This architecture enables maximum flexibility—you can render anything to the d
 ## Running the Daemon
 
 ```bash
-sudo fbcp_daemon --shm /fbcp_rgb666 --width 480 --height 320 --rotation 270 --fps 1
+sudo ili9488-daemon --shm /fbcp_rgb666 --width 480 --height 320 --rotation 270 --fps 1
 ```
 
 ### Command-line Options
@@ -265,16 +265,16 @@ After installation, the daemon runs as a systemd service:
 
 ```bash
 # View status
-sudo systemctl status fbcp-daemon
+sudo systemctl status ili9488-daemon
 
 # Restart
-sudo systemctl restart fbcp-daemon
+sudo systemctl restart ili9488-daemon
 
 # View logs
-sudo journalctl -u fbcp-daemon -f
+sudo journalctl -u ili9488-daemon -f
 ```
 
-The service is configured in `/etc/systemd/system/fbcp-daemon.service` and uses settings from `/etc/default/fbcp-daemon`.
+The service is configured in `/etc/systemd/system/ili9488-daemon.service` and uses settings from `/etc/default/ili9488-daemon`.
 
 ## Troubleshooting
 
@@ -287,7 +287,7 @@ The service is configured in `/etc/systemd/system/fbcp-daemon.service` and uses 
 
 ### Daemon crashes with "SIGBUS" or "Permission denied"
 
-1. Ensure running as root: `sudo fbcp_daemon ...`
+1. Ensure running as root: `sudo ili9488-daemon ...`
 2. Reboot after package installation (configures CMA and GPU memory)
 3. Check kernel version: `uname -r` (should be >=5.x)
 4. Verify 64-bit OS: `uname -m` (should be `aarch64`)
@@ -303,7 +303,7 @@ The service is configured in `/etc/systemd/system/fbcp-daemon.service` and uses 
 
 - `scripts/setup.sh`: Install cross-compile dependencies on Ubuntu
 - `scripts/build.sh`: Build natively or cross-compile (set `TOOLCHAIN_FILE`)
-- `scripts/deploy.sh`: Deploy `fbcp_daemon` binary to Pi via SSH
+- `scripts/deploy.sh`: Deploy `ili9488-daemon` binary to Pi via SSH
 
 ## License
 

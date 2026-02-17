@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace fbcp::pixel {
+namespace ili9488::pixel {
 
 void ConvertRgb888ToRgb666(const uint8_t* src, uint8_t* dst, size_t pixel_count);
 void ConvertRgba8888ToRgb666(const uint8_t* src, uint8_t* dst, size_t pixel_count);
