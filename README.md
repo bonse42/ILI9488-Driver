@@ -18,7 +18,7 @@ The implementation is modernized for 64-bit Raspberry Pi OS (kernel ≥5.x) and 
 - **~3.5 MB memory footprint** (triple buffer + daemon overhead)
 - **All rotation angles supported** (0°, 90°, 180°, 270°) with GPU DMA acceleration
 
-**Note:** This is a display driver, not a terminal emulator. You must write your own application to convert and push pixel data to the shared memory framebuffer. See [Important: This is a Display Driver, Not a Terminal Emulator](#important-this-is-a-display-driver-not-a-terminal-emulator) for details.
+**Note:** This is a display driver, not a terminal emulator. You must write your own application to convert and push pixel data to the shared memory framebuffer. Refer to [this section](#important-this-is-a-display-driver-not-a-terminal-emulator) for details.
 
 ## Target Hardware
 
@@ -30,7 +30,7 @@ The implementation is modernized for 64-bit Raspberry Pi OS (kernel ≥5.x) and 
 
 **Not Supported:**
 - **32-bit OS or 32-bit Pi models** — the prebuilt `.deb` package is compiled for `arm64` only.
-  If you are on a 32-bit system, you can try [building from source](#build-scripts) yourself, but this is untested and not officially supported.
+  If you are on a 32-bit system, you can try [building from source](#build-from-source) yourself, but this is untested and not officially supported.
 - Other display controllers (ILI9488 only)
 - Parallel/GPIO-based displays
 
@@ -52,7 +52,7 @@ The post-install script automatically configures:
   - If already set to >32MB: Kept as-is, with info message to verify sufficiency
 - **GPIO:** Configure DC (GPIO 24) and RESET (GPIO 25) as outputs
 
-**After installation, you must reboot** for kernel parameter changes (`/boot/config.txt`, CMA, GPU memory) to take effect. The daemon starts automatically after reboot.
+**After installation, you must reboot** for kernel parameter changes (`/boot/firmware/config.txt`|`/boot/config.txt`, CMA, GPU memory) to take effect. The daemon starts automatically after reboot.
 
 ### 2. Build from Source
 
@@ -121,9 +121,11 @@ sudo ili9488-daemon --shm /ili9488_rgb666 --width 320 --height 480 --rotation 90
 | `--shm <path>` | `/ili9488_rgb666` | Shared memory name for framebuffer |
 | `--width <px>` | 320 | Display width in pixels |
 | `--height <px>` | 480 | Display height in pixels |
-| `--rotation <deg>` | 0 | Rotation: 0, 90, 180, or 270 degrees |
+| `--rotation <deg>` | 90¹ | Rotation: 0, 90, 180, or 270 degrees |
 | `--fps-overlay <0\|1>` | 0 | Display FPS counter overlay on screen |
-| `--max-fps <rate>` | 20 | Maximum frames per second (0 = unlimited) |
+| `--max-fps <rate>` | 15¹ | Maximum frames per second (0 = unlimited) |
+
+¹ **Defaults:** These values are set by `/etc/default/ili9488-daemon` (systemd service environment). When running manually, built-in defaults are `--rotation 0` and `--max-fps 20`. Override with command-line arguments.
 
 **Note:** The daemon must run as root to access `/dev/vcio` (GPU Mailbox) and `/dev/mem`.
 
@@ -137,7 +139,7 @@ ILI9488_WIDTH=320
 ILI9488_HEIGHT=480
 ILI9488_ROTATION=90
 ILI9488_FPS_OVERLAY=0
-ILI9488_MAX_FPS=20
+ILI9488_MAX_FPS=15
 ```
 
 ## Shared Memory Protocol
@@ -203,8 +205,6 @@ Byte 2: BBBBBBXX  (B: top 6 bits used, bottom 2 bits unused)
 ```
 
 The display uses only the **top 6 bits of each byte** (18-bit color total), providing **262,144 unique colors** (64 × 64 × 64). The bottom 2 bits can be any value (usually masked to 0x00).
-
-**Why RGB666?** The ILI9488 has 6-bit-per-channel color depth when driven via SPI. RGB888 would waste 2 bits per channel and add 33% memory overhead.
 
 ### Writing to Shared Memory
 
@@ -346,40 +346,72 @@ sudo ./frame_app
 
 ## Rotation
 
-Rotation is applied **in-place** before DMA transfer and uses **GPU-accelerated DMA** for 90° and 270° transformations. Rotation is automatically detected and logged at daemon startup.
+The daemon applies rotation **before SPI transfer** to match the physical display orientation. The `--width` and `--height` parameters specify the **physical display output dimensions**, and the daemon automatically calculates the required framebuffer dimensions from your application.
 
-When specifying rotation, always provide the **input framebuffer dimensions** (source data from your application):
+### Parameter Semantics
 
-| Rotation | Method | Input → Output | Performance |
-|----------|--------|---|---|
-| **0°**   | Index swap only | 320×480 → 320×480 | Fastest (no data movement) |
-| **90°**  | GPU DMA rotation | 320×480 → 480×320 | ~12 FPS (GPU accelerated) |
-| **180°** | Index swap only | 320×480 → 320×480 | Fastest (no data movement) |
-| **270°** | GPU DMA rotation | 320×480 → 480×320 | ~12 FPS (GPU accelerated) |
+- `--width` and `--height`: Physical display output dimensions (320×480 for standard ILI9488)
+- `--rotation`: How to transform the application framebuffer to match the display orientation
 
-**Key point:** Rotation doesn't reduce framerate. All rotations maintain **~12 FPS** sustained (SPI bandwidth is the limiting factor, not rotation complexity).
+**Application framebuffer dimensions are determined by the rotation angle:**
 
-#### Example
+| Rotation | Display Output | App Framebuffer | Method |
+|----------|---|---|---|
+| **0°**   | 320×480 | 320×480 | Index swap (pointer swap, no rotation) |
+| **90°**  | 320×480 | 480×320 | GPU DMA rotation (270° internally) |
+| **180°** | 320×480 | 320×480 | GPU DMA rotation (180°) |
+| **270°** | 320×480 | 480×320 | GPU DMA rotation (90° internally) |
 
-For a portrait framebuffer (320×480) displayed in landscape orientation:
+### Usage Examples
 
+**Display in native portrait (0° rotation):**
+```bash
+sudo ili9488-daemon --width 320 --height 480 --rotation 0
+```
+- App writes: 320×480 frames (portrait orientation)
+- Display shows: 320×480 (no rotation applied)
+- Method: Index swap only (fastest, no GPU DMA)
+
+**Display rotated 90° (landscape from portrait framebuffer):**
 ```bash
 sudo ili9488-daemon --width 320 --height 480 --rotation 90
 ```
+- App writes: 480×320 frames (landscape orientation)
+- Display shows: 320×480 (rotated 270° to show landscape as portrait)
+- Method: GPU DMA rotation (asynchronous with SPI transfer)
 
-The daemon will:
-1. Accept 320×480 RGB666 frames from your application
-2. Rotate 90° using GPU DMA (triple-buffer architecture handles seamlessly)
-3. Output 480×320 rotated pixels to the physical display
+**Display upside-down (180° rotation):**
+```bash
+sudo ili9488-daemon --width 320 --height 480 --rotation 180
+```
+- App writes: 320×480 frames (portrait, upside-down)
+- Display shows: 320×480 (inverted)
+- Method: GPU DMA rotation (180°)
 
-Your application writes 320×480 frames to shared memory; the daemon handles rotation internally.
+### Implementation Details
 
-#### Rotation Implementation Details
+**0° (No rotation):**
+- Method: Simple buffer index swap (updates pointer indices)
+- Data movement: None (zero-copy, pointer operations only)
+- GPU DMA: Not used
+- CPU overhead: Minimal
 
-- **0° / 180°:** Index rotation only (swap buffer pointers, no GPU DMA needed)
-- **90° / 270°:** GPU DMA rotation (uses BCM DMA channel 7, asynchronous with SPI transfer)
-- All rotations are **zero-copy** (no CPU memcpy, all via GPU or pointer swaps)
-- Triple-buffer enables rotation to happen asynchronously (previous frame displays while next rotates)
+**90° and 270° (GPU DMA with axis swap):**
+- Method: BCM DMA channel 7 performs 2D rotation with stride
+- Internally: Daemon rotates by (360° - user_angle) for GPU hardware
+  - 90° user input → 270° GPU rotation
+  - 270° user input → 90° GPU rotation
+- Data movement: GPU DMA (asynchronous, overlaps with SPI)
+- Axis swap: Framebuffer width ↔ height
+- CPU overhead: Minimal (GPU handles all computation)
+
+**180° (GPU DMA, no axis swap):**
+- Method: BCM DMA channel 7 with 2D stride (180° rotation)
+- Data movement: GPU DMA (asynchronous, overlaps with SPI)
+- Axis swap: None (dimensions stay 320×480)
+- CPU overhead: Minimal
+
+**Performance:** All rotations maintain ~12 FPS (SPI bandwidth dominates). GPU DMA rotations happen asynchronously while previous frame is transferred to display. Triple-buffer architecture ensures rotation doesn't block the SPI pipeline.
 
 ## Performance Characteristics
 
@@ -408,7 +440,7 @@ Your application writes 320×480 frames to shared memory; the daemon handles rot
 | **CPU Usage** | 0.10% | 0.20% | 0.60% |
 | **Memory (RSS)** | — | 6.11 MB | — |
 
-**Rotation: 180° (No DMA, index swap)**
+**Rotation: 180° (GPU DMA)**
 | Metric | Min | Avg | Max |
 |--------|-----|-----|-----|
 | **FPS** | 11.7 | 12.1 | 13.5 |
@@ -444,9 +476,10 @@ Your application writes 320×480 frames to shared memory; the daemon handles rot
 - Leaves **~508 MB** free on 512 MB Pi Zero 2W
 
 **Rotation Performance:**
-- **0°/180°:** Index rotation only (no data copy, pure buffer swap)
-- **90°/270°:** GPU DMA rotation with index swap (no CPU memcpy)
-- All rotations use GPU DMA for SPI transfer (zero CPU memory copy)
+- **0°:** Index swap only (pointer operations, no GPU DMA needed, fastest)
+- **90°/180°/270°:** GPU DMA rotation (BCM DMA channel 7, asynchronous with SPI)
+- **All rotations:** Zero-copy architecture (GPU DMA handles all data movement, not CPU memcpy)
+- **SPI transfer:** Always GPU DMA (DMA-BUF CMA buffers are GPU-capable via bus addresses)
 
 ### Resource Requirements
 - **SPI Bandwidth:** 65 MHz (80 Mbps theoretical, 65 Mbps practical)
@@ -455,7 +488,6 @@ Your application writes 320×480 frames to shared memory; the daemon handles rot
 - **Shared Memory:** 460,800 bytes per framebuffer (320×480×3 RGB666)
 
 ### System Impact
-- **Temperature:** Stable at ~50°C idle, <60°C continuous updates
 - **Power Consumption:** Minimal (DMA-driven, not CPU-spinning)
 - **Latency:** ~56-80 ms frame-to-display (SPI transfer dominated)
 - **Jitter:** Minimal (hardware DMA handles timing, not software)
@@ -513,12 +545,18 @@ Zero-copy property:
 ### GPU Acceleration (BCM DMA + Mailbox)
 
 **When available (detected at startup):**
-- **DMA Channel:** BCM DMA channel 7 (reserved, doesn't conflict)
-- **Operation:** 2D rotation (90° and 270° only)
-- **Overhead:** ~14ms GPU time (overlaps with SPI, minimal CPU involvement)
+- **DMA Channel:** BCM DMA channel 7 (reserved, independent SPI DMA)
+- **Operation:** 2D rotation (all angles: 0°, 90°, 180°, 270°)
+  - **0°:** Index swap only (no GPU DMA used)
+  - **90°, 180°, 270°:** GPU DMA 2D rotation with stride
+- **Overhead:** ~14ms GPU time (overlaps with SPI transfer asynchronously)
+- **Efficiency:** GPU operates in parallel with SPI, ~12 FPS maintained
 - **Detection:** Automatic; logged as "GPU Rotation: Available" or "Unavailable"
 
-**Fallback:** If GPU unavailable, rotation not supported (daemon logs warning)
+**Fallback (if GPU unavailable):**
+- Rotation still supported, but with CPU pixel manipulation (slower)
+- 0° rotation always works (index swap, never requires GPU)
+- Higher CPU load for 90°/180°/270° rotations (CPU memcpy)
 
 ### GPIO Configuration
 
@@ -678,24 +716,11 @@ The **Raspberry Pi ILI9488 Display Driver** is a high-performance, production-re
 4. **Semaphore synchronization** — Non-blocking I/O, prevents tearing, efficient event handling
 5. **Headless-optimized** — ~0.2% CPU ideal for embedded applications, IoT, kiosk displays
 
-### Use Cases
-- **Industrial/Embedded Displays:** Status screens, telemetry dashboards on Pi Zero 2W
-- **IoT Kiosks:** Low-power touchscreen interfaces with minimal CPU overhead
-- **Retro/Arcade:** Game emulation display with smooth, tear-free rendering
-- **Photography/Imaging:** Real-time preview on portable Pi-based cameras
-- **Robotics:** Lightweight display output without eating system resources
-
 ### Limitations
 - **Framerate ceiling:** ~12 FPS (hardware limit of 65 MHz SPI + 460 KB framebuffer)
 - **Color depth:** RGB666 (262K colors, hardware limit of ILI9488 via SPI)
 - **Resolution:** 320×480 pixels (ILI9488 specific, not scalable to other controllers)
 - **Display-only:** This driver does NOT include a window system, X11, or Wayland backend; you must write your own renderer
-
-### Recommended Next Steps
-1. Install the `.deb` package and test with the frame generator: `scripts/frame_generator.c`
-2. Implement your own pixel renderer (sample code in [Writing to Shared Memory](#writing-to-shared-memory))
-3. Monitor performance: `sudo journalctl -u ili9488-daemon -f` or enable FPS overlay
-4. For customization: Fork and modify `src/ili9488_daemon.cpp`, rebuild with `scripts/build.sh`
 
 ## License
 
