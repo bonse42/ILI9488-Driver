@@ -30,7 +30,7 @@ The implementation is modernized for 64-bit Raspberry Pi OS (kernel ≥5.x) and 
 
 **Not Supported:**
 - **32-bit OS or 32-bit Pi models** — the prebuilt `.deb` package is compiled for `arm64` only.
-  If you are on a 32-bit system, you can try [building from source](#build-from-source) yourself, but this is untested and not officially supported.
+  If you are on a 32-bit system, you can try [building from source](#2-build-from-source) yourself, but this is untested and not officially supported.
 - Other display controllers (ILI9488 only)
 - Parallel/GPIO-based displays
 
